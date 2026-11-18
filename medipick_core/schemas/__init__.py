@@ -1,16 +1,8 @@
-"""MediPick Core — Shared Schemas."""
-from medipick_core.schemas.common import (
-    SuccessResponse,
-    MessageResponse,
-    PaginationMeta,
-    PaginatedResponse,
-    ErrorResponse,
-)
+"""MediPick Core — Shared Pydantic Schemas."""
+from medipick_core.schemas import common
+from medipick_core.schemas import payment
 
 __all__ = [
-    "SuccessResponse",
-    "MessageResponse",
-    "PaginationMeta",
-    "PaginatedResponse",
-    "ErrorResponse",
+    "common",
+    "payment",
 ]
