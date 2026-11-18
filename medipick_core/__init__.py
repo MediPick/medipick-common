@@ -15,6 +15,7 @@ from medipick_core import security
 from medipick_core import schemas
 from medipick_core import utils
 from medipick_core import services
+from medipick_core import rbac
 from medipick_core.exceptions import MediPickException, error_json
 
 __version__ = "1.0.0"
@@ -31,6 +32,7 @@ __all__ = [
     "schemas",
     "utils",
     "services",
+    "rbac",
     "MediPickException",
     "error_json",
     "__version__",
