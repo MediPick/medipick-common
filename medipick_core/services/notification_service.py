@@ -92,8 +92,8 @@ class NotificationService:
         )
         return list(result.scalars().all()), total
 
-    async def mark_read(
-        self, db: AsyncSession, user_id: uuid.UUID, notification_id: uuid.UUID
+    async def set_read(
+        self, db: AsyncSession, user_id: uuid.UUID, notification_id: uuid.UUID, is_read: bool = True
     ) -> Notification:
         result = await db.execute(
             select(Notification).where(
@@ -104,9 +104,14 @@ class NotificationService:
         if notification is None:
             raise MediPickException("NOT_FOUND", 404, "Notification not found.")
 
-        notification.is_read = True
+        notification.is_read = is_read
         await db.flush()
         return notification
+
+    async def mark_read(
+        self, db: AsyncSession, user_id: uuid.UUID, notification_id: uuid.UUID
+    ) -> Notification:
+        return await self.set_read(db, user_id, notification_id, True)
 
     async def mark_all_read(self, db: AsyncSession, user_id: uuid.UUID) -> int:
         result = await db.execute(

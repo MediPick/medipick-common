@@ -60,19 +60,18 @@ class StockService:
             return False
 
         inventory.stock_quantity -= item.quantity
-        item.stock_reserved = True
+        item.inventory_item_id = inventory.id
         return True
 
     async def release(
         self, db: AsyncSession, pharmacy_id: uuid.UUID, item: OrderItem
     ) -> None:
         """Restores inventory when an order is cancelled or rejected."""
-        if not item.stock_reserved or item.medicine_id is None:
+        if item.inventory_item_id is None or item.medicine_id is None:
             return
         inventory = await self.lock_inventory(db, pharmacy_id, item.medicine_id)
         if inventory is not None:
             inventory.stock_quantity += item.quantity
-        item.stock_reserved = False
 
 
 stock_service = StockService()
