@@ -1,0 +1,42 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MediPick Platform API",
+    "version": "1.0.0",
+    "description": "Unified OpenAPI contract for MediPick Customer, Pharmacy, and Admin Microservices."
+  },
+  "paths": {
+    "/v1/auth/request-otp": {
+      "post": {
+        "summary": "Request Customer 6-Digit SMS OTP",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/v1/auth/verify-otp": {
+      "post": {
+        "summary": "Verify Customer OTP and Issue JWT Tokens",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "summary": "Staff & Admin Email/Password Login",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/v1/orders": {
+      "get": {
+        "summary": "List Paginated Orders",
+        "tags": [
+          "Orders"
+        ]
+      }
+    }
+  }
+}
