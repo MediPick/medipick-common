@@ -375,7 +375,151 @@ $$\text{Updated Stock} = \max(0, \text{current\_quantity} + \Delta)$$
 
 ---
 
-## 10. Summary Audit & Verification Reference
+## 10. Regulatory Compliance, Statutory License Expiry & Anti-Spam Verification Lifecycle `[SHARED]`
+
+MediPick enforces statutory compliance under the National Medicines Regulatory Authority (NMRA) Act No. 5 of 2015 (Sec. 54) and international healthcare verification standards. To prevent document spam, fraudulent back-dating, and certificate flooding while maintaining continuous operational audit trails, the following mathematical rules and state gates govern license renewals and dispensary visuals.
+
+---
+
+### 10.1 Statutory License Expiry & Renewal Window ($\Delta t_{\text{window}}$)
+Every certified retail pharmacy holds an official NMRA premises license with a statutory expiration date $T_{\text{expiry}}$.
+$$\text{Days Remaining to Expiry } (D_{\text{rem}}) = \lfloor (T_{\text{expiry}} - T_{\text{now}}) \text{ in days} \rfloor$$
+
+To prevent premature administrative queue flooding while ensuring pharmacies have ample time to renew before operational suspension:
+$$\text{Renewal Window Threshold } (\Delta t_{\text{window}}) = 90 \text{ calendar days} \quad (\approx 3 \text{ months})$$
+
+The submission gate status is determined by:
+$$\text{Renewal Gate State} = \begin{cases} 
+\text{LOCKED\_ACTIVE} & \text{if } D_{\text{rem}} > \Delta t_{\text{window}} \text{ and } S_{\text{license}} = \text{VERIFIED} \\
+\text{RENEWAL\_OPEN} & \text{if } 0 \le D_{\text{rem}} \le \Delta t_{\text{window}} \\
+\text{EXPIRED\_GRACE} & \text{if } -\Delta t_{\text{grace}} \le D_{\text{rem}} < 0 \quad [\Delta t_{\text{grace}} = 14\text{d}] \\
+\text{SUSPENDED} & \text{if } D_{\text{rem}} < -\Delta t_{\text{grace}} \quad [\text{Store Paused from Customer Search}]
+\end{cases}$$
+
+* **`LOCKED_ACTIVE`**: The current license is valid and verified. Submission of renewals is locked to prevent administrative spam. The UI displays:  
+  $$\text{"License Verified · Renewal opens } 90\text{ days before expiry ("} + (T_{\text{expiry}} - 90\text{d}) + \text{")"}$$
+* **`RENEWAL_OPEN`**: Renewal window is active. Pharmacy is prompted to submit their renewed NMRA license with the newly certified expiry date.
+* **`SUSPENDED`**: Failure to renew within the grace period automatically sets `pharmacy.status = RESTRICTED_DEMO` and `is_open = False`, removing the dispensary from customer prescription routing until certified.
+
+---
+
+### 10.2 Single In-Flight Submission Rule (Anti-Spam Concurrency Lock)
+To prevent repeated document re-uploads while a compliance officer is inspecting a submission:
+$$\text{Max Pending Submissions Per Pharmacy} = 1$$
+
+$$\text{Can Submit Renewal} = (\text{Renewal Gate State} \in \{\text{RENEWAL\_OPEN}, \text{EXPIRED\_GRACE}, \text{REJECTED}\}) \land (\text{Pending Document Count} = 0)$$
+
+If a renewal document has status `status = PENDING_REVIEW`:
+* The upload trigger is locked with state: `⏳ Renewal Under MediPick Compliance Review`.
+* Re-submission is prohibited until an authorized compliance auditor transitions the state to either `VERIFIED` or `REJECTED`.
+
+---
+
+### 10.3 Forward Expiry Date Validation Bounds ($\mathcal{D}_{\text{new}}$)
+When submitting a renewal certificate, the pharmacy must provide the newly certified statutory expiration date $T_{\text{new\_expiry}}$ printed on the official NMRA certificate. The backend and frontend enforce strict boundary validation:
+
+$$\text{Validation Constraints:}$$
+1. **Strict Future Bound**:
+   $$T_{\text{new\_expiry}} > T_{\text{today}}$$
+   *(Rejects past dates, expired certificates, and retro-dated proofs).*
+2. **Forward Progression Bound**:
+   $$T_{\text{new\_expiry}} > T_{\text{current\_expiry}}$$
+   *(A renewal must advance the license expiration beyond the currently verified term; back-sliding or equal dates are rejected).*
+3. **NMRA Statutory Cycle Cap** ($\Delta t_{\text{max\_term}}$):
+   NMRA premises licenses operate on an annual statutory cycle (maximum 2-year multi-year grant):
+   $$T_{\text{today}} + 180\text{ days} \le T_{\text{new\_expiry}} \le T_{\text{today}} + 730\text{ days} \quad [6\text{ months} \le \text{Term} \le 2\text{ years}]$$
+   *(Rejects erroneous selections such as 10-year or invalid year inputs).*
+
+---
+
+### 10.4 Atomic Approval Transition & Audit Log
+Upon approval by a MediPick Compliance Administrator (`POST /compliance/documents/{id}/review` with `decision = APPROVE`):
+1. **Document State Transition**:
+   $$\text{document.status} \leftarrow \text{VERIFIED}$$
+2. **Pharmacy License Master Expiration Update**:
+   $$T_{\text{current\_expiry}} \leftarrow T_{\text{new\_expiry}}$$
+3. **Audit Trail Event**:
+   An immutable audit record is appended to `pharmacy_audit_logs` with:
+   $$\text{event} = \text{"license.renewal\_approved"}, \quad \text{actor} = \text{admin\_user\_id}, \quad \text{prev\_expiry} = T_{\text{old}}, \quad \text{new\_expiry} = T_{\text{new}}$$
+4. **Gate Reset**:
+   The renewal gate immediately locks back to `LOCKED_ACTIVE` until the new $T_{\text{expiry}} - 90\text{ days}$ threshold is reached.
+
+---
+
+### 10.5 Dispensary Visual Compliance & Anti-Spam Policy
+In compliance with pharmacy verification standards, dispensary premise photos are structured into **3 fixed compliance slots**:
+1. `storefront`: Main Entrance & Street Facade ($16:9$ Landscape)
+2. `counter`: Dispensing Counter & Service Area ($4:3$ Standard)
+3. `storage`: Cold Chain & Medicine Storage ($4:3$ Standard)
+
+* **Dual-State Pipeline**: Uploaded drafts remain in `PENDING` status. Patient apps display only `APPROVED` photos.
+* **30-Day Consistency Cooldown**:
+  $$\text{Cooldown Remaining } (D_{\text{cool}}) = \max\left(0, 30 - \lfloor (T_{\text{now}} - T_{\text{approval}}) \text{ in days} \rfloor\right)$$
+  $$\text{Can Update Visual Slot} = (D_{\text{cool}} = 0) \lor (\text{Status} \in \{\text{EMPTY}, \text{REJECTED}\})$$
+* **File Constraints**: Max $5\text{ MB}$, MIME types: `image/jpeg`, `image/png`, `image/webp`. Enforced via silent file-picker filter and client/server validation toast.
+
+---
+
+### 10.6 Document-Specific Expiry Date Requirements & Statutory Periodicity Table
+Just like credit card verification requires a card number and card expiration date (`MM/YY`), medical compliance documents require statutory dates for cryptographic and regulatory auditability:
+
+| Document Type Code | Official Document Name | Mandatory Date Input | Statutory Renewal Periodicity | Pre-Expiry Alert Trigger |
+| :--- | :--- | :---: | :---: | :---: |
+| `nmra_license` | **NMRA Retail Pharmacy Premises License** | **Expiration Date** | **Annual (1 Year)** | 90 days before expiry |
+| `pharmacist_slmc` | **Pharmacist SLMC Practicing Certificate** | **Expiration Date** | **Annual (1 Year)** | 60 days before expiry |
+| `business_registration`| **Business Registration (BR / Form 1)** | **Registration Date** | **Permanent** (Annual tax filing) | N/A (Static corporate entity) |
+| `bank_passbook` | **Bank Passbook / Settlement Statement** | **Statement Date** | **Recent (Last 90 Days)** | Flags if statement $> 90\text{d}$ old |
+
+---
+
+## 11. Dispensary Operating Hours & Statutory Poya / Public Holiday Engine `[PHARMACY]`
+
+Sri Lankan pharmacy law and patient service guarantees require explicit scheduling taking into account weekly operating schedules and statutory national Poya/public holidays (`SettingsView.tsx` & `pharmacy_service.py`):
+
+### 11.1 Weekly Operating Schedules
+Each dispensary branch defines weekly operating hours for all 7 calendar days:
+$$\text{Schedule}_d = \{ \text{isOpen}: \text{bool}, \ t_{\text{open}}: \text{"HH:MM"}, \ t_{\text{close}}: \text{"HH:MM"} \} \quad \forall d \in \{\text{Mon}\dots\text{Sun}\}$$
+* **Emergency 24/7 Overnight Flag**: If a dispensary operates continuously, $t_{\text{open}} = \text{"00:00"}$ and $t_{\text{close}} = \text{"23:59"}$, exempt from standard closing cutoff.
+
+### 11.2 Poya & Public Holiday Override Rules
+Statutory Poya holidays (full moon days under the Holidays Act No. 29 of 1971) and national public holidays take precedence over the weekly schedule:
+$$\text{Holiday Rule} = \begin{cases}
+  \text{CLOSED} & \implies \text{Dispensary marked closed for the statutory holiday} \\
+  \text{HALF\_DAY} & \implies \text{Closes early (e.g. 14:00 cutoff) for religious observance} \\
+  \text{REGULAR} & \implies \text{Normal weekly schedule maintained}
+\end{cases}$$
+
+### 11.3 Real-Time Store Availability Gate
+$$\text{Dispensary Visible & Open} \iff \text{pharmacy.is\_open} \land \text{WithinOperatingHours}(T_{\text{now}}) \land \neg\text{HolidayClosed}(T_{\text{now}})$$
+If a branch is outside active operating hours or in a closed holiday state, it is labeled `"Closed · Opens at HH:MM"` in customer search and prescription routing is paused.
+
+---
+
+## 12. Order State Machine Transitions & Cancellation Refund Guarantee `[SHARED]`
+
+All prescription and OTC orders transition through the deterministic Finite State Machine (`order_fsm.py`):
+
+```text
+[DRAFT / SUBMITTED] ──► [WAITING_PHARMACY_CONFIRMATION] ──► [WAITING_CUSTOMER_CONFIRMATION]
+        │                                                                   │
+        ▼ (Free 100% Refund Cancel)                                         ▼ (Customer Confirms & Pays)
+   [CANCELLED]                                                        [PREPARING]
+                                                                            │
+                                                                            ▼ (Marked Ready)
+                                                                  [READY_FOR_PICKUP]
+                                                                            │
+                                                                            ▼ (6-Digit PIN Verified)
+                                                                       [COMPLETED]
+```
+
+### 12.1 100% Automatic Refund Guarantee (`FREE_CANCEL_STATES`)
+A customer can cancel their order with an **immediate 100% automatic refund** at zero penalty as long as the dispensary has not commenced physical dispensing:
+$$\text{Free Cancel States} = \{\text{DRAFT}, \text{SUBMITTED}, \text{WAITING\_PHARMACY\_CONFIRMATION}, \text{WAITING\_CUSTOMER\_CONFIRMATION}\}$$
+Once an order transitions to `OrderState.PREPARING` (dispensary pharmacist unseals medicine stock and generates prescription labels), cancellation is locked to protect pharmaceutical integrity.
+
+---
+
+## 13. Summary Audit & Verification Reference
 
 | Property | Rule / Statutory Target | Code File Reference |
 | :--- | :--- | :--- |
@@ -386,4 +530,7 @@ $$\text{Updated Stock} = \max(0, \text{current\_quantity} + \Delta)$$
 | **Prep Target** | $\le 20.0$ mins bench time | `pharmacy-backend/app/services/stats_service.py:27` |
 | **On-Time Target** | $\ge 95.0\%$ fulfillment | `pharmacy-backend/app/services/stats_service.py:28` |
 | **Acceptance Target** | $\ge 80.0\%$ quote conversion | `pharmacy-backend/app/services/stats_service.py:29` |
-| **Audit Log Retain**| Statutory 5-Year NMRA compliance | `medipick-common/docs/METRICS_AND_CALCULATIONS.md` |
+| **License Renewal Window** | Opens 90 days before expiry ($D_{\text{rem}} \le 90\text{d}$) | `medipick-common/docs/METRICS_AND_CALCULATIONS.md:10.1` |
+| **License Expiry Bounds** | $T_{\text{current}} < T_{\text{new}} \le T_{\text{today}} + 730\text{d}$ | `medipick-common/docs/METRICS_AND_CALCULATIONS.md:10.3` |
+| **Visual Cooldown** | 30-day anti-spam lock on approval | `pharmacy-backend/app/services/pharmacy_service.py:488` |
+| **Audit Log Retain** | Statutory 5-Year NMRA compliance | `medipick-common/docs/METRICS_AND_CALCULATIONS.md` |
