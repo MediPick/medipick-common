@@ -9,7 +9,7 @@
 ```text
 medipick-common/
 ├── backend/                  # Python 3.11 shared backend package
-│   ├── medipick_core/        # SQLAlchemy models (23), Alembic, RBAC, JWT, Storage
+│   ├── medipick_core/        # SQLAlchemy models (39 tables across 23 files), Alembic, RBAC, JWT, Storage
 │   ├── alembic/              # Database migration versions
 │   └── pyproject.toml        # pip package configuration
 │
