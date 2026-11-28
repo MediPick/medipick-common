@@ -94,6 +94,46 @@ export interface Prescription {
   createdAt: string;
 }
 
+export type DispensaryVerificationStatus =
+  | 'verified'
+  | 'under_review'
+  | 'pending_submission'
+  | 'rejected'
+  | 'expired';
+
+export type ComplianceDocType =
+  | 'nmra_license'
+  | 'business_registration'
+  | 'pharmacist_slmc'
+  | 'bank_passbook';
+
+export type ComplianceDocumentStatus = 'verified' | 'under_review' | 'rejected';
+
+export interface ComplianceDocument {
+  id: string;
+  pharmacyId: string;
+  docType: ComplianceDocType;
+  title: string;
+  fileName: string;
+  fileKey?: string;
+  fileUrl?: string;
+  fileSizeBytes?: number;
+  status: ComplianceDocumentStatus;
+  expiryDate?: string;
+  uploadedAt: string;
+  verifiedAt?: string;
+}
+
+export type TimePeriod = 'Today' | 'Last 7 Days' | 'This Month' | 'This Year';
+
+export type CompareBenchmark = 'none' | 'prev_period' | 'last_year' | 'target_sla';
+
+export type AdminRole =
+  | 'SUPER_ADMIN'
+  | 'COMPLIANCE_OFFICER'
+  | 'FINANCE_AUDITOR'
+  | 'CUSTOMER_SUPPORT_LEAD';
+
 export interface ApiResponse<T> {
   success: boolean;
   message?: string;
