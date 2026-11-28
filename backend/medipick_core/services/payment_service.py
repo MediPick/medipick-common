@@ -58,7 +58,16 @@ class PaymentService:
         self.gateway = _build_gateway()
 
     def verify_webhook_signature(self, raw_body: bytes, signature_header: str | None) -> None:
-        secret = os.getenv("PAYMENT_WEBHOOK_SECRET", "dev-webhook-secret")
+        secret = os.getenv("STRIPE_WEBHOOK_SECRET") or os.getenv("PAYMENT_WEBHOOK_SECRET")
+        if not secret or secret in ("dev-webhook-secret", "whsec_dev_mock_stripe_webhook_secret"):
+            app_env = os.getenv("APP_ENV", "development").lower()
+            if app_env not in ("development", "test", "dev"):
+                raise MediPickException(
+                    "SECURITY_CONFIGURATION_ERROR",
+                    500,
+                    "STRIPE_WEBHOOK_SECRET (or PAYMENT_WEBHOOK_SECRET) must be securely configured with a secret in production.",
+                )
+            secret = secret or "dev-webhook-secret"
         if not signature_header or not signature_header.startswith("sha256="):
             raise MediPickException("INVALID_SIGNATURE", 401, "Missing or malformed X-MediPick-Signature.")
         provided = signature_header.removeprefix("sha256=")

@@ -22,6 +22,14 @@ DEFAULT_DATABASE_URL = os.getenv(
 
 def create_db_engine(database_url: str | None = None):
     url = database_url or os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    ssl_env = os.getenv("DATABASE_SSL", "").lower()
+    connect_args: dict[str, object] = {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
+    }
+    if ssl_env in ("true", "1", "yes", "require"):
+        connect_args["ssl"] = "require"
     return create_async_engine(
         url,
         echo=False,
@@ -29,11 +37,7 @@ def create_db_engine(database_url: str | None = None):
         max_overflow=5,
         pool_recycle=1800,
         pool_pre_ping=True,
-        connect_args={
-            "statement_cache_size": 0,
-            "prepared_statement_cache_size": 0,
-            "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4().hex}__",
-        },
+        connect_args=connect_args,
     )
 
 engine = create_db_engine()

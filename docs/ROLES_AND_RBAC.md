@@ -37,7 +37,7 @@ graph TD
 
 | Role | Auth Mechanism | Primary Capabilities |
 | :--- | :--- | :--- |
-| **`Customer`** (`CUSTOMER`) | Sri Lankan Mobile Phone SMS OTP (`+94...`) | Search open pharmacies, browse OTC drugs, upload prescriptions, view live clarity scores, accept pharmacist quotes, track order stages, pay via PayHere, rate experience. |
+| **`Customer`** (`CUSTOMER`) | Sri Lankan Mobile Phone SMS OTP (`+94...`) | Search open pharmacies, browse OTC drugs, upload prescriptions, view live clarity scores, accept pharmacist quotes, track order stages, pay via Stripe, rate experience. |
 
 ---
 
