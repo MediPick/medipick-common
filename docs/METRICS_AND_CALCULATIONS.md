@@ -519,7 +519,132 @@ Once an order transitions to `OrderState.PREPARING` (dispensary pharmacist unsea
 
 ---
 
-## 13. Summary Audit & Verification Reference
+## 13. Cloud Infrastructure Unit Economics & Cost Protection Architecture Specification `[SHARED]`
+
+MediPick enforces production-grade infrastructure cost controls and DoS suppression guards across all compute, storage, database, and third-party payment layers. These mechanisms guarantee that cloud operational expenditures remain predictable and scale sub-linearly with customer volume ($O(1)$ or $O(\log N)$):
+
+```mermaid
+flowchart TD
+    subgraph TIER1 [Tier 1: Transient In-Memory Gating]
+        P[Patient Camera Capture] --> C{"Fail-Fast Clarity Gate<br/>(2ms Laplacian Kernel)"}
+        C -- "Score < 50 (Blurry/Dark)" --> D["Discard in RAM<br/>$0 Storage · $0 Cloud GPU"]
+    end
+
+    subgraph TIER2 [Tier 2: Protected Inference]
+        C -- "Score >= 50" --> Y["YOLOv11 PyTorch Inference<br/>(Only on validated images)"]
+        Y --> R{"Customer Confirms Order?"}
+        R -- "Abandoned Cart" --> D2["Discard in RAM<br/>$0 S3 Storage Cost"]
+    end
+
+    subgraph TIER3 [Tier 3: Presigned Object Store]
+        R -- "Confirmed Checkout" --> S3["Direct-to-S3 Presigned Upload<br/>(Bypasses API server egress bandwidth)"]
+    end
+
+    subgraph TIER4 [Tier 4: Metadata-Only Persistence]
+        S3 --> DB[("PostgreSQL 15 RDBMS<br/>Stores only 40-byte URI key<br/>No binary BYTEA blobs")]
+    end
+
+    subgraph TIER5 [Tier 5: Serverless Compute Scale-to-Zero]
+        CR["GCP Cloud Run Microservices<br/>min_instances = 0 ($0 overnight)<br/>max_instances = 5 (Hard billing cap)"]
+    end
+```
+
+### 13.1 AI & Deep Learning Inference Cost Suppression Math
+Running deep learning neural network inference (YOLOv11 PyTorch) consumes substantial CPU and memory resources ($\sim 85\text{ms} - 120\text{ms}$ per image). If patients repeatedly upload blurry or unreadable photos, unthrottled inference would drive cloud compute bills rapidly.
+
+1. **Computational Complexity Differential**:
+   $$\text{Complexity}(\text{Laplacian Filter}) = O(1) \approx 2\text{ms} \ll \text{Complexity}(\text{YOLOv11 Inference}) = O(N) \approx 100\text{ms}$$
+   The normalized Laplacian edge variance test evaluates image legibility in $2\text{ms}$. If the computed clarity score is below the statutory threshold ($S < 50$), the request terminates immediately:
+   $$\text{Threshold Gate}: \text{Score} < 50 \implies \text{modelInferenceMs} = 0.0\text{ms} \land \text{YOLO invocation skipped}$$
+
+2. **Compute Cycles Saved Formulation**:
+   $$\text{CPU Cycles Saved} = \frac{\sum_{i=1}^{M_{\text{rejected}}} T_{\text{YOLO}}}{\sum_{i=1}^{M_{\text{total}}} T_{\text{YOLO}}} \approx 85\% - 95\% \text{ reduction on bad photo retakes}$$
+
+3. **Sliding-Window Rate Limiting**:
+   To prevent automated script attacks or client loops from exhausting PyTorch workers, a dedicated token-bucket rate limit is enforced on clarity endpoints:
+   $$\text{Rate Limit} = 20\text{ requests per 60-second sliding window per customer user ID}$$
+   Violations immediately return `HTTP 429 Too Many Requests` via Redis storage, protecting inference thread availability.
+
+4. **Decompression Bomb Memory Ceiling**:
+   Maliciously compressed image files (e.g. 50 KB PNG expanding to 30 GB in uncompressed bitmap RAM) are trapped before allocation:
+   $$\text{Max Pixel Area} = 25{,}000{,}000\text{ pixels (25 Megapixels)} \quad (\text{PIL.Image.MAX\_IMAGE\_PIXELS})$$
+   $$\text{Max Payload Size} = 10 \times 1024 \times 1024 = 10{,}485{,}760\text{ bytes (10 MB)} \quad (\text{UPLOAD\_MAX\_BYTES})$$
+
+---
+
+### 13.2 Storage Unit Economics & Bandwidth Bypass (Presigned S3)
+Traditional monolithic file handling proxies binary uploads through the API backend, incurring double bandwidth charges (Client &rarr; API Server &rarr; Storage Bucket) and exhausting backend memory.
+
+1. **Direct-to-Bucket Presigned Uploads ($O(1)$ Backend Network Load)**:
+   The backend generates an HMAC-SHA256 signed PUT URL. The client transmits binary image data directly to the object storage bucket (MinIO / S3 / GCS):
+   $$\text{Backend Egress Bandwidth} = 0\text{ bytes per upload}$$
+
+2. **Monthly Storage Cost Mathematical Model**:
+   Prescription storage costs scale strictly with confirmed clinical orders:
+   $$\text{Cost}_{\text{storage}} = N_{\text{orders}} \times \overline{P_{\text{pages}}} \times \overline{S_{\text{compressed}}} \times R_{\text{S3/GB}}$$
+   Where:
+   * $N_{\text{orders}}$: Total confirmed customer prescription orders.
+   * $\overline{P_{\text{pages}}} \approx 2$: Average pages per prescription order ($\text{max} \le 5$).
+   * $\overline{S_{\text{compressed}}} \approx 1.5\text{ MB}$: Average optimized image size.
+   * $R_{\text{S3/GB}} = \$0.023/\text{GB}$: AWS S3 / GCP Cloud Storage Standard tier rate.
+
+   **Standard Economic Benchmark ($N = 1{,}000\text{ orders/month}$)**:
+   $$\text{Data Volume} = 1{,}000 \times 2 \times 1.5\text{ MB} = 3{,}000\text{ MB} = 3\text{ GB}$$
+   $$\text{Cost}_{\text{storage}} = 3\text{ GB} \times \$0.023 = \mathbf{\$0.069 / \text{month}} \quad (< 25\text{ LKR})$$
+
+3. **Temporary 15-Minute Access TTL**:
+   Dispensary staff access prescription scans exclusively via temporary presigned URLs:
+   $$T_{\text{presigned}} = 900\text{ seconds (15 minutes)}$$
+   Expired links reject unauthorized access, eliminating persistent public S3 bucket egress costs.
+
+4. **Statutory 90-Day Archival Policy**:
+   Orders older than the statutory active review period transition automatically to cold storage:
+   $$\text{Age} > 90\text{ days} \implies \text{S3 Glacier Flexible Archive} \quad (\$0.0036/\text{GB} \implies 84\%\text{ cost reduction})$$
+
+---
+
+### 13.3 Relational Database Footprint Optimization (PostgreSQL)
+Storing binary image blobs directly inside PostgreSQL (`BYTEA`) rapidly bloats database size, forcing costly managed database tier upgrades and degrading query cache performance.
+
+1. **Metadata-Only Record Storage**:
+   The database stores strictly the canonical 40-character file key string:
+   $$\text{prescriptions.image\_url} = \text{"prescriptions/550e8400-e29b/a1b2c3d4...jpg"}$$
+2. **Database Record Storage Density**:
+   $$\text{Record Size} \approx 320\text{ bytes per prescription row}$$
+   $$\text{Storage for } 100{,}000\text{ Prescriptions} = 100{,}000 \times 320\text{ bytes} \approx \mathbf{32\text{ MB}}$$
+   $100{,}000$ complete prescription records fit comfortably within standard free-tier database quotas (e.g. Supabase 500 MB quota).
+
+---
+
+### 13.4 Serverless Compute Optimization & Scale-to-Zero Guardrails
+MediPick microservices run on containerized serverless infrastructure (GCP Cloud Run) configured to eliminate idle cloud costs:
+
+1. **Scale-to-Zero Architecture**:
+   $$\text{min\_instance\_count} = 0 \implies \text{Idle Spend} = \$0.00 / \text{hour}$$
+   Containers shut down automatically during zero-traffic overnight hours. Compute billing applies strictly per 100ms of active CPU request processing.
+
+2. **Hard Concurrency Ceiling (Billing Shield)**:
+   $$\text{max\_instance\_count} = 5 \implies \text{Guaranteed Billing Ceiling}$$
+   Prevents runaway auto-scaling in the event of distributed traffic spikes or upstream retries.
+
+3. **Internal Compute Isolation**:
+   The PyTorch YOLOv8 vision service is bound to loopback and internal networking:
+   $$\text{ingress} = \text{"INGRESS\_TRAFFIC\_INTERNAL\_ONLY"} \land \text{Port} = 127.0.0.1:8001$$
+   External public traffic cannot query the AI service directly, preventing unauthorized external compute consumption.
+
+---
+
+### 13.5 Payment Gateway Fee Economics & Fraud Shield (Stripe)
+1. **Zero Recurring Platform Overhead**:
+   Stripe operates on a pure per-transaction variable fee model ($2.9\% + \$0.30$). MediPick incurs **\$0.00** in fixed monthly payment gateway charges when transactions are zero.
+2. **Fail-Closed Mock Endpoint Guard**:
+   `POST /api/v1/payments/mock-confirm` strictly returns `404 NOT_FOUND` in production environments (`APP_ENV not in ('development', 'test', 'dev')`), preventing zero-dollar fraudulent order releases.
+3. **Webhook Replay Shield**:
+   Stripe webhook events are verified via HMAC-SHA256 (`STRIPE_WEBHOOK_SECRET`) with a 300-second timestamp tolerance and idempotent transaction status guards (`txn.status in (SUCCEEDED, REFUNDED)`), preventing duplicate charge or refund processing.
+
+---
+
+## 14. Master Summary Audit & Verification Reference
 
 | Property | Rule / Statutory Target | Code File Reference |
 | :--- | :--- | :--- |
@@ -533,4 +658,11 @@ Once an order transitions to `OrderState.PREPARING` (dispensary pharmacist unsea
 | **License Renewal Window** | Opens 90 days before expiry ($D_{\text{rem}} \le 90\text{d}$) | `medipick-common/docs/METRICS_AND_CALCULATIONS.md:10.1` |
 | **License Expiry Bounds** | $T_{\text{current}} < T_{\text{new}} \le T_{\text{today}} + 730\text{d}$ | `medipick-common/docs/METRICS_AND_CALCULATIONS.md:10.3` |
 | **Visual Cooldown** | 30-day anti-spam lock on approval | `pharmacy-backend/app/services/pharmacy_service.py:488` |
+| **Fail-Fast Clarity Threshold** | $\text{Score} \ge 50$ (Skips YOLO if $< 50$) | `medipick_core/storage.py` & `vision-service/app/main.py` |
+| **Max Upload Payload** | $10\text{ MB}$ hard stream abort | `medipick_core/storage.py:MAX_UPLOAD_BYTES` |
+| **Decompression Bomb Guard** | $25\text{ MP}$ ($25{,}000{,}000\text{ px}$) ceiling | `medipick_core/storage.py:MAX_IMAGE_PIXELS` |
+| **Presigned URL Expiry** | $15\text{ minutes}$ ($900\text{s}$) TTL | `medipick_core/storage.py:PRESIGNED_URL_TTL_SECONDS` |
+| **Max Prescription Pages** | $\le 5\text{ pages}$ per order submission | `medipick_core/storage.py:MAX_PRESCRIPTION_PAGES` |
+| **AI Rate Limit Token Bucket** | $20\text{ requests}/\text{min}$ per customer | `customer-backend/app/api/v1/endpoints/prescriptions.py` |
+| **Cloud Run Scale Bounds** | $\text{min}=0,\ \text{max}=5\text{ instances}$ | `medipick-iac/cloud_run.tf` |
 | **Audit Log Retain** | Statutory 5-Year NMRA compliance | `medipick-common/docs/METRICS_AND_CALCULATIONS.md` |

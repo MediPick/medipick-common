@@ -12,6 +12,13 @@ import uuid
 # purpose/<user uuid>/<random hex> — strict so a key can never escape UPLOAD_DIR.
 _FILE_KEY_RE = re.compile(r"^[a-z_]+/[0-9a-f-]{36}/[0-9a-f]{32}$")
 
+# ── Infrastructure Cost Protection & DoS Guardrails ───────────────────────────
+MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024      # 10 MB hard payload ceiling (prevents RAM saturation)
+MAX_IMAGE_PIXELS: int = 25_000_000             # 25 Megapixels (prevents Decompression Bomb DoS)
+MAX_PRESCRIPTION_PAGES: int = 5                # Max prescription pages per order (prevents page flooding)
+PRESIGNED_URL_TTL_SECONDS: int = 900           # 15-minute temporary presigned URL expiration
+CLARITY_THRESHOLD_SCORE: int = 50              # Fail-fast clarity threshold (skips expensive YOLO inference)
+
 ALLOWED_CONTENT_TYPES: set[str] = {
     "image/jpeg",
     "image/png",
